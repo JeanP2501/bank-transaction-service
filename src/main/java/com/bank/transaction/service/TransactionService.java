@@ -1,6 +1,7 @@
 package com.bank.transaction.service;
 
 import com.bank.transaction.client.AccountClient;
+import com.bank.transaction.client.CommissionClient;
 import com.bank.transaction.client.CreditClient;
 import com.bank.transaction.exception.InsufficientFundsException;
 import com.bank.transaction.exception.TransactionException;
@@ -17,8 +18,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Service layer for Transaction operations
@@ -33,6 +32,7 @@ public class TransactionService {
     private final TransactionMapper transactionMapper;
     private final AccountClient accountClient;
     private final CreditClient creditClient;
+    private final CommissionClient commissionClient;
 
     /**
      * Process a deposit to an account
@@ -47,19 +47,27 @@ public class TransactionService {
                 .flatMap(account -> {
                     String customerId = account.getCustomerId();
                     BigDecimal currentBalance = account.getBalance();
-                    BigDecimal newBalance = currentBalance.add(request.getAmount());
 
-                    Transaction transaction = Transaction.builder()
-                            .transactionType(TransactionType.DEPOSIT)
-                            .amount(request.getAmount())
-                            .accountId(request.getAccountId())
-                            .customerId(customerId)
-                            .status(TransactionStatus.COMPLETED)
-                            .description(request.getDescription())
-                            .balanceAfter(newBalance)
-                            .build();
+                    // Calculate commission
+                    return commissionClient.calculateCommission(request.getAccountId())
+                            .flatMap(commission -> {
+                                // Net amount after commission
+                                BigDecimal netAmount = request.getAmount().subtract(commission);
+                                BigDecimal newBalance = currentBalance.add(netAmount);
 
-                    return transactionRepository.save(transaction);
+                                Transaction transaction = Transaction.builder()
+                                        .transactionType(TransactionType.DEPOSIT)
+                                        .amount(request.getAmount())
+                                        .accountId(request.getAccountId())
+                                        .customerId(customerId)
+                                        .status(TransactionStatus.COMPLETED)
+                                        .description(request.getDescription())
+                                        .balanceAfter(newBalance)
+                                        .commission(commission)  // ← NUEVO
+                                        .build();
+
+                                return transactionRepository.save(transaction);
+                            });
                 })
                 .doOnSuccess(t -> log.info("Deposit completed: {}", t.getId()))
                 .map(transactionMapper::toResponse)
@@ -85,25 +93,36 @@ public class TransactionService {
                     String customerId = account.getCustomerId();
                     BigDecimal currentBalance = account.getBalance();
 
-                    if (currentBalance.compareTo(request.getAmount()) < 0) {
-                        return Mono.error(new InsufficientFundsException(request.getAmount(), currentBalance));
-                    }
+                    // Calculate commission
+                    return commissionClient.calculateCommission(request.getAccountId())
+                            .flatMap(commission -> {
+                                // Total amount including commission
+                                BigDecimal totalAmount = request.getAmount().add(commission);
 
-                    BigDecimal newBalance = currentBalance.subtract(request.getAmount());
+                                // Validate sufficient funds for withdrawal + commission
+                                if (currentBalance.compareTo(totalAmount) < 0) {
+                                    return Mono.error(new InsufficientFundsException(
+                                            totalAmount, currentBalance));
+                                }
 
-                    Transaction transaction = Transaction.builder()
-                            .transactionType(TransactionType.WITHDRAWAL)
-                            .amount(request.getAmount())
-                            .accountId(request.getAccountId())
-                            .customerId(customerId)
-                            .status(TransactionStatus.COMPLETED)
-                            .description(request.getDescription())
-                            .balanceAfter(newBalance)
-                            .build();
+                                BigDecimal newBalance = currentBalance.subtract(totalAmount);
 
-                    return transactionRepository.save(transaction);
+                                Transaction transaction = Transaction.builder()
+                                        .transactionType(TransactionType.WITHDRAWAL)
+                                        .amount(request.getAmount())
+                                        .accountId(request.getAccountId())
+                                        .customerId(customerId)
+                                        .status(TransactionStatus.COMPLETED)
+                                        .description(request.getDescription())
+                                        .balanceAfter(newBalance)
+                                        .commission(commission)  // ← NUEVO
+                                        .build();
+
+                                return transactionRepository.save(transaction);
+                            });
                 })
-                .doOnSuccess(t -> log.info("Withdrawal completed: {}", t.getId()))
+                .doOnSuccess(t -> log.info("Withdrawal completed: {} (Commission: {})",
+                        t.getId(), t.getCommission()))
                 .map(transactionMapper::toResponse)
                 .onErrorResume(e -> {
                     log.error("Withdrawal failed: {}", e.getMessage());

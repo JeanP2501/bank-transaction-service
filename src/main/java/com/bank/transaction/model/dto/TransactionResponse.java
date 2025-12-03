@@ -30,4 +30,5 @@ public class TransactionResponse {
     private BigDecimal balanceAfter;
     private String errorMessage;
     private LocalDateTime createdAt;
+    private BigDecimal commission;
 }

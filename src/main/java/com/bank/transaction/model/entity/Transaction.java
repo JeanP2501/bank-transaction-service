@@ -94,4 +94,11 @@ public class Transaction {
         return transactionType == TransactionType.PAYMENT ||
                 transactionType == TransactionType.CHARGE;
     }
+
+    /**
+     * Commission charged for this transaction.
+     * Zero if transaction was free
+     */
+    private BigDecimal commission = BigDecimal.ZERO;
+
 }

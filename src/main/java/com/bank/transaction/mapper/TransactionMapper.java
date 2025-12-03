@@ -27,6 +27,7 @@ public class TransactionMapper {
                 .description(transaction.getDescription())
                 .balanceAfter(transaction.getBalanceAfter())
                 .errorMessage(transaction.getErrorMessage())
+                .commission(transaction.getCommission())
                 .createdAt(transaction.getCreatedAt())
                 .build();
     }
