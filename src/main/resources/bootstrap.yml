@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: transaction
+  cloud:
+    config:
+      uri: ${CONFIG_SERVER_URL:http://localhost:8888}
+      fail-fast: false
+      retry:
+        max-attempts: 10
+        initial-interval: 2000
+        max-interval: 3000

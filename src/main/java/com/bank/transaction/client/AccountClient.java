@@ -19,8 +19,9 @@ public class AccountClient {
 
     private final WebClient webClient;
 
-    public AccountClient(@Value("${account.service.url}") String accountServiceUrl) {
-        this.webClient = WebClient.builder()
+    public AccountClient(WebClient.Builder webClientBuilder,
+                         @Value("${account.service.url}") String accountServiceUrl) {
+        this.webClient = webClientBuilder
                 .baseUrl(accountServiceUrl)
                 .build();
     }

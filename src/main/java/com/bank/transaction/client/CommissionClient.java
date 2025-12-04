@@ -19,8 +19,9 @@ public class CommissionClient {
 
     private final WebClient webClient;
 
-    public CommissionClient(@Value("${account.service.url}") String accountServiceUrl) {
-        this.webClient = WebClient.builder()
+    public CommissionClient(WebClient.Builder webClientBuilder,
+                            @Value("${account.service.url}") String accountServiceUrl) {
+        this.webClient = webClientBuilder
                 .baseUrl(accountServiceUrl)
                 .build();
     }

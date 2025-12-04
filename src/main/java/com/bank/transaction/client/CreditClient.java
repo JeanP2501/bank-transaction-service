@@ -21,8 +21,9 @@ public class CreditClient {
 
     private final WebClient webClient;
 
-    public CreditClient(@Value("${credit.service.url}") String creditServiceUrl) {
-        this.webClient = WebClient.builder()
+    public CreditClient(WebClient.Builder webClientBuilder,
+                        @Value("${credit.service.url}") String creditServiceUrl) {
+        this.webClient = webClientBuilder
                 .baseUrl(creditServiceUrl)
                 .build();
     }
