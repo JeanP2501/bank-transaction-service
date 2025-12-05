@@ -1,5 +1,8 @@
 package com.bank.transaction.client;
 
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
+import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -8,6 +11,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -33,6 +37,9 @@ public class CommissionClient {
      * @param accountId the account id
      * @return Mono with commission amount
      */
+    @CircuitBreaker(name = "accountService", fallbackMethod = "calculateCommissionFallback")
+    @Retry(name = "accountService")
+    @TimeLimiter(name = "accountService")
     public Mono<BigDecimal> calculateCommission(String accountId) {
         log.debug("Calculating commission for account: {}", accountId);
 
@@ -40,6 +47,7 @@ public class CommissionClient {
                 .uri("/api/accounts/{id}/calculate-commission", accountId)
                 .retrieve()
                 .bodyToMono(Map.class)
+                .timeout(Duration.ofSeconds(2))
                 .map(response -> {
                     Object commissionObj = response.get("commission");
                     if (commissionObj instanceof Number) {
@@ -49,11 +57,19 @@ public class CommissionClient {
                 })
                 .doOnSuccess(commission ->
                         log.debug("Commission calculated for account {}: {}", accountId, commission))
-                .onErrorResume(WebClientResponseException.class, ex -> {
-                    log.error("Error calculating commission: {} - {}",
-                            ex.getStatusCode(), ex.getMessage());
-                    return Mono.just(BigDecimal.ZERO); // No comisión en caso de error
+                .doOnError(ex -> {
+                    log.error("Error calculating commission for account {}: {}",
+                            accountId, ex.getMessage());
                 });
+    }
+
+    /**
+     * Fallback for calculateCommission
+     */
+    private Mono<BigDecimal> calculateCommissionFallback(String accountId, Exception ex) {
+        log.warn("Circuit breaker activated for calculateCommission. AccountId: {}. Returning zero commission",
+                accountId);
+        return Mono.just(BigDecimal.ZERO);
     }
 
     /**
@@ -62,6 +78,9 @@ public class CommissionClient {
      * @param accountId the account id
      * @return Mono with commission amount
      */
+    @CircuitBreaker(name = "accountService", fallbackMethod = "getNextCommissionFallback")
+    @Retry(name = "accountService")
+    @TimeLimiter(name = "accountService")
     public Mono<BigDecimal> getNextCommission(String accountId) {
         log.debug("Getting next commission for account: {}", accountId);
 
@@ -69,6 +88,7 @@ public class CommissionClient {
                 .uri("/api/accounts/{id}/commission", accountId)
                 .retrieve()
                 .bodyToMono(Map.class)
+                .timeout(Duration.ofSeconds(2))
                 .map(response -> {
                     Object commissionObj = response.get("nextTransactionCommission");
                     if (commissionObj instanceof Number) {
@@ -76,6 +96,19 @@ public class CommissionClient {
                     }
                     return BigDecimal.ZERO;
                 })
-                .onErrorResume(ex -> Mono.just(BigDecimal.ZERO));
+                .doOnError(ex -> {
+                    log.error("Error getting next commission for account {}: {}",
+                            accountId, ex.getMessage());
+                });
     }
+
+    /**
+     * Fallback for getNextCommission
+     */
+    private Mono<BigDecimal> getNextCommissionFallback(String accountId, Exception ex) {
+        log.warn("Circuit breaker activated for getNextCommission. AccountId: {}. Returning zero",
+                accountId);
+        return Mono.just(BigDecimal.ZERO);
+    }
+
 }
