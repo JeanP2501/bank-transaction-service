@@ -58,34 +58,26 @@ public class TransactionService {
                                 BigDecimal netAmount = request.getAmount().subtract(commission);
                                 BigDecimal newBalance = currentBalance.add(netAmount);
 
-                                Transaction transaction = Transaction.builder()
-                                        .transactionType(TransactionType.DEPOSIT)
-                                        .amount(request.getAmount())
-                                        .accountId(request.getAccountId())
-                                        .customerId(customerId)
-                                        .status(TransactionStatus.COMPLETED)
-                                        .description(request.getDescription())
-                                        .balanceAfter(newBalance)
-                                        .commission(commission)  // ← NUEVO
-                                        .build();
+                                AccBalanceUpdRequest accUpdNewBalance = new AccBalanceUpdRequest();
+                                accUpdNewBalance.setBalance(newBalance);
+                                return accountClient.updateBalance(account.getId(), accUpdNewBalance)
+                                        .flatMap(updateAccount -> {
+                                            Transaction transaction = Transaction.builder()
+                                                    .transactionType(TransactionType.DEPOSIT)
+                                                    .amount(request.getAmount())
+                                                    .accountId(request.getAccountId())
+                                                    .customerId(customerId)
+                                                    .status(TransactionStatus.COMPLETED)
+                                                    .description(request.getDescription())
+                                                    .balanceAfter(newBalance)
+                                                    .commission(commission)
+                                                    .build();
 
-                                return transactionRepository.save(transaction);
+                                            return transactionRepository.save(transaction);
+                                        });
                             });
                 })
-                .flatMap(transaction -> {
-                    // Publicar evento después de guardar exitosamente
-                    EntityActionEvent event = EntityActionEvent.builder()
-                            .eventId(UUID.randomUUID().toString())
-                            .eventType("TRANSACTION_CREATED")
-                            .entityType(transaction.getClass().getSimpleName())
-                            .payload(transaction)
-                            .timestamp(LocalDateTime.now())
-                            .build();
-                    return kafkaProducerService.sendEvent(transaction.getId(), event)
-                            .doOnSuccess(t -> log.info("Deposit completed: {}", transaction.getId()))
-                            .doOnError(e -> log.error("Error publishing event: {}", e.getMessage()))
-                            .thenReturn(transaction);
-                })
+                .flatMap(this::sendCreateKafka)
                 .map(transactionMapper::toResponse)
                 .onErrorResume(e -> {
                     log.error("Deposit failed: {}", e.getMessage());
@@ -93,6 +85,21 @@ public class TransactionService {
                             request.getAccountId(), null, null, e.getMessage())
                             .map(transactionMapper::toResponse);
                 });
+    }
+
+    private Mono<Transaction> sendCreateKafka(Transaction transaction) {
+        // Publicar evento después de guardar exitosamente
+        EntityActionEvent event = EntityActionEvent.builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType("TRANSACTION_CREATED")
+                .entityType(transaction.getClass().getSimpleName())
+                .payload(transaction)
+                .timestamp(LocalDateTime.now())
+                .build();
+        return kafkaProducerService.sendEvent(transaction.getId(), event)
+                .doOnSuccess(t -> log.info("Deposit completed: {}", transaction.getId()))
+                .doOnError(e -> log.error("Error publishing event: {}", e.getMessage()))
+                .thenReturn(transaction);
     }
 
     /**
@@ -123,18 +130,23 @@ public class TransactionService {
 
                                 BigDecimal newBalance = currentBalance.subtract(totalAmount);
 
-                                Transaction transaction = Transaction.builder()
-                                        .transactionType(TransactionType.WITHDRAWAL)
-                                        .amount(request.getAmount())
-                                        .accountId(request.getAccountId())
-                                        .customerId(customerId)
-                                        .status(TransactionStatus.COMPLETED)
-                                        .description(request.getDescription())
-                                        .balanceAfter(newBalance)
-                                        .commission(commission)  // ← NUEVO
-                                        .build();
+                                AccBalanceUpdRequest accUpdNewBalance = new AccBalanceUpdRequest();
+                                accUpdNewBalance.setBalance(newBalance);
+                                return accountClient.updateBalance(account.getId(), accUpdNewBalance)
+                                        .flatMap(updatedAcc -> {
+                                            Transaction transaction = Transaction.builder()
+                                                    .transactionType(TransactionType.WITHDRAWAL)
+                                                    .amount(request.getAmount())
+                                                    .accountId(request.getAccountId())
+                                                    .customerId(customerId)
+                                                    .status(TransactionStatus.COMPLETED)
+                                                    .description(request.getDescription())
+                                                    .balanceAfter(newBalance)
+                                                    .commission(commission)  // ← NUEVO
+                                                    .build();
 
-                                return transactionRepository.save(transaction);
+                                            return transactionRepository.save(transaction);
+                                        });
                             });
                 })
                 .doOnSuccess(t -> log.info("Withdrawal completed: {} (Commission: {})",

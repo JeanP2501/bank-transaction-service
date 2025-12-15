@@ -1,6 +1,7 @@
 package com.bank.transaction.client;
 
 import com.bank.transaction.exception.ServiceUnavailableException;
+import com.bank.transaction.model.dto.AccBalanceUpdRequest;
 import com.bank.transaction.model.dto.AccountResponse;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
@@ -13,6 +14,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 
 import javax.security.auth.login.AccountNotFoundException;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Map;
 
@@ -71,6 +73,25 @@ public class AccountClient {
         // Para otros errores, retornar error de servicio no disponible
         return Mono.error(new ServiceUnavailableException(
                 "Account service is currently unavailable. Please try again later."));
+    }
+
+    @Retry(name = "accountService")
+    @TimeLimiter(name = "accountService")
+    public Mono<AccountResponse> updateBalance(String accountId, AccBalanceUpdRequest req) {
+        log.debug("Calling Account Service to update balance with id: {}", accountId);
+
+        return webClient.put()
+                .uri("/api/accounts/balance/{id}", accountId)
+                .bodyValue(req)
+                .retrieve()
+                .onStatus(status -> status.value() == 404,
+                        response -> Mono.error(new AccountNotFoundException(accountId)))
+                .bodyToMono(AccountResponse.class)
+                .timeout(Duration.ofSeconds(2))
+                .doOnSuccess(account -> log.debug("Balance updated for account: {}", account.getId()))
+                .doOnError(WebClientResponseException.class, ex -> {
+                    log.error("Error calling Account Service: {} - {}", ex.getStatusCode(), ex.getMessage());
+                });
     }
 
 }
