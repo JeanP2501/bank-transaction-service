@@ -23,5 +23,9 @@ public enum TransactionType {
     /**
      * Charge to credit card
      */
-    CHARGE
+    CHARGE,
+    /**
+     * Intendify addition or substraction of a Transfer
+     */
+    TRANSFER
 }

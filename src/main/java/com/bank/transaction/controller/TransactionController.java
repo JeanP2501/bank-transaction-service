@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.List;
+
 /**
  * REST Controller for Transaction operations
  * Provides endpoints for deposits, withdrawals, payments, and charges
@@ -138,4 +140,14 @@ public class TransactionController {
         log.info("GET /api/transactions/customer/{} - Fetching transactions for customer", customerId);
         return Mono.just(ResponseEntity.ok(transactionService.findByCustomerId(customerId)));
     }
+
+    @PostMapping("/transfer")
+    public Mono<ResponseEntity<List<TransactionResponse>>> transfer(@Valid @RequestBody TransferRequest request) {
+        log.info("POST /api/transactions/transfer - Transfer of {} from account {} to {}",
+                request.getAmount(), request.getAccountId(), request.getDestinationAccountId());
+        return transactionService.transfer(request)
+                .collectList()
+                .map(responses -> ResponseEntity.status(HttpStatus.CREATED).body(responses));
+    }
+
 }

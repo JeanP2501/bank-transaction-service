@@ -11,6 +11,7 @@ import com.bank.transaction.model.entity.Transaction;
 import com.bank.transaction.model.enums.TransactionStatus;
 import com.bank.transaction.model.enums.TransactionType;
 import com.bank.transaction.repository.TransactionRepository;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -313,4 +315,65 @@ public class TransactionService {
 
         return transactionRepository.save(transaction);
     }
+
+    public Flux<TransactionResponse> transfer(@Valid TransferRequest request) {
+        Mono<AccountResponse> sourceAccountMono = accountClient.getAccount(request.getAccountId())
+                .switchIfEmpty(Mono.error(new TransactionException("Source account not found: " + request.getAccountId())));
+
+        Mono<AccountResponse> destinationAccountMono = accountClient.getAccount(request.getDestinationAccountId())
+                .switchIfEmpty(Mono.error(new TransactionException("Destination account not found: " + request.getDestinationAccountId())));
+
+        return Mono.zip(sourceAccountMono, destinationAccountMono)
+                .flatMapMany(tuple -> {  // Cambiado de flatMap a flatMapMany
+                    AccountResponse sourceAccount = tuple.getT1();
+                    AccountResponse destinationAccount = tuple.getT2();
+
+                    BigDecimal newSourceBalance = sourceAccount.getBalance().subtract(request.getAmount());
+                    BigDecimal newDestinationBalance = destinationAccount.getBalance().add(request.getAmount());
+
+                    if (newSourceBalance.compareTo(BigDecimal.ZERO) < 0) {
+                        return Flux.error(new InsufficientFundsException(
+                                request.getAmount(), sourceAccount.getBalance()));
+                    }
+
+                    AccBalanceUpdRequest accBalanceSource = new AccBalanceUpdRequest();
+                    accBalanceSource.setBalance(newSourceBalance);
+                    AccBalanceUpdRequest accBalanceDestination = new AccBalanceUpdRequest();
+                    accBalanceDestination.setBalance(newDestinationBalance);
+
+                    Mono<AccountResponse> accSource = accountClient.updateBalance(sourceAccount.getId(), accBalanceSource);
+                    Mono<AccountResponse> accDestination = accountClient.updateBalance(destinationAccount.getId(), accBalanceDestination);
+
+                    return Mono.zip(accSource, accDestination)
+                            .flatMapMany(accountsTuple -> {
+                                AccountResponse accSourceUpd = accountsTuple.getT1();
+                                AccountResponse accDestinationUpd = accountsTuple.getT2();
+
+                                Transaction transactionSource = Transaction.builder()
+                                        .transactionType(TransactionType.TRANSFER)
+                                        .amount(request.getAmount())
+                                        .accountId(accSourceUpd.getId())
+                                        .customerId(accSourceUpd.getCustomerId())
+                                        .status(TransactionStatus.COMPLETED)
+                                        .description(request.getDescription())
+                                        .balanceAfter(accSourceUpd.getBalance())
+                                        .build();
+
+                                Transaction transactionDestination = Transaction.builder()
+                                        .transactionType(TransactionType.TRANSFER)
+                                        .amount(request.getAmount())
+                                        .accountId(accDestinationUpd.getId())
+                                        .customerId(accDestinationUpd.getCustomerId())
+                                        .status(TransactionStatus.COMPLETED)
+                                        .description(request.getDescription())
+                                        .balanceAfter(accDestinationUpd.getBalance())
+                                        .build();
+
+                                return transactionRepository.save(transactionSource)
+                                        .concatWith(transactionRepository.save(transactionDestination));
+                            });
+                })
+                .map(transactionMapper::toResponse);
+    }
+
 }
