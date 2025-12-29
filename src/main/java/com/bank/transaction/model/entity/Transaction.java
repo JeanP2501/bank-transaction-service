@@ -2,6 +2,7 @@ package com.bank.transaction.model.entity;
 
 import com.bank.transaction.model.enums.TransactionStatus;
 import com.bank.transaction.model.enums.TransactionType;
+import static com.bank.transaction.utils.Constants.PERIOD_FORMATTER;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -13,6 +14,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -77,6 +79,9 @@ public class Transaction {
     private String errorMessage;
 
     @Builder.Default
+    private String period = getCurrentPeriod();
+
+    @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
 
     /**
@@ -100,5 +105,9 @@ public class Transaction {
      * Zero if transaction was free
      */
     private BigDecimal commission = BigDecimal.ZERO;
+
+    public static String getCurrentPeriod() {
+        return LocalDate.now().format(PERIOD_FORMATTER);
+    }
 
 }
