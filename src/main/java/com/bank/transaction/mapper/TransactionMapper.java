@@ -29,6 +29,7 @@ public class TransactionMapper {
                 .errorMessage(transaction.getErrorMessage())
                 .commission(transaction.getCommission())
                 .createdAt(transaction.getCreatedAt())
+                .period(transaction.getPeriod())
                 .build();
     }
 }

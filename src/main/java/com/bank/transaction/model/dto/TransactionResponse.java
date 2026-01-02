@@ -31,4 +31,6 @@ public class TransactionResponse {
     private String errorMessage;
     private LocalDateTime createdAt;
     private BigDecimal commission;
+    private String period;
+
 }
